@@ -17,8 +17,6 @@ Portability : non-portable
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Scratch2 where
 
 import Data.Proxy (Proxy(..))
@@ -45,9 +43,6 @@ import GHC.Generics
 import Data.Aeson
 
 class Embed tag api where
-  type PayloadIn api
-  type PayloadOut api -- do we need this?
-
   type FireIn' tag h api
   type Queues tag api
   type TupleListConstraints h api :: Constraint
@@ -69,9 +64,6 @@ class Embed tag api where
         -> Server api
 
 class Embed tag api => EmbedEvents t tag api where
-  type EventsIn t tag api
-  type EventsIn t tag api = EventsIn' t tag () api
-
   type PairIn' t tag h api
   type EventsIn' t tag h api
   type EventsOut t tag api
@@ -92,11 +84,6 @@ class Embed tag api => EmbedEvents t tag api where
             -> PairIn' t tag h api
             -> (EventsIn' t tag h api, FireIn' tag h api)
 
-  mkOut :: Reflex t
-        => Proxy api
-        -> Event t (tag, PayloadOut api)
-        -> EventsOut t tag api
-
   addToQueue :: ( Reflex t
                 , Monad m
                 , PerformEvent t m
@@ -113,12 +100,6 @@ class Embed tag api => EmbedEvents t tag api where
 
 instance (Embed tag a, Embed tag b) =>
   Embed tag (a :<|> b) where
-
-  type PayloadIn (a :<|> b) =
-    Either (PayloadIn a) (PayloadIn b)
-
-  type PayloadOut (a :<|> b) =
-    Either (PayloadOut a) (PayloadOut b)
 
   type FireIn' tag h (a :<|> b) =
     FireIn' tag h a :<|>
@@ -165,32 +146,12 @@ instance (EmbedEvents t tag a, EmbedEvents t tag b) =>
     in
       (fA :<|> fB, eA :<|> eB)
 
-  mkOut _ ee =
-    let
-      l (Left e)  = Just e
-      l (Right _) = Nothing
-
-      r (Right e) = Just e
-      r (Left _)  = Nothing
-
-      wrap (t, Just x)  = Just (t, x)
-      wrap (_, Nothing) = Nothing
-    in
-      mkOut (Proxy :: Proxy a) (fmapMaybe (wrap . fmap l) ee) :<|>
-      mkOut (Proxy :: Proxy b) (fmapMaybe (wrap . fmap r) ee)
-
   addToQueue pt _ (eoA :<|> eoB) (qA :<|> qB) = do
     addToQueue pt (Proxy :: Proxy a) eoA qA
     addToQueue pt (Proxy :: Proxy b) eoB qB
 
 instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
   Embed tag (Capture capture a :> api)  where
-
-  type PayloadIn (Capture capture a :> api) =
-    (a, PayloadIn api)
-
-  type PayloadOut (Capture capture a :> api) =
-    PayloadOut api
 
   type FireIn' tag h (Capture capture a :> api) =
     FireIn' tag (a, h) api
@@ -225,20 +186,11 @@ instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (a, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
   Embed tag (CaptureAll capture a :> api) where
-
-  type PayloadIn (CaptureAll capture a :> api) =
-    ([a], PayloadIn api)
-
-  type PayloadOut (CaptureAll capture a :> api) =
-    PayloadOut api
 
   type FireIn' tag h (CaptureAll capture a :> api) =
     FireIn' tag ([a], h) api
@@ -273,20 +225,11 @@ instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy ([a], h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   Embed tag (Header sym a :> api) where
-
-  type PayloadIn (Header sym a :> api) =
-    (Maybe a, PayloadIn api)
-
-  type PayloadOut (Header sym a :> api) =
-    PayloadOut api
 
   type FireIn' tag h (Header sym a :> api) =
     FireIn' tag (Maybe a, h) api
@@ -321,20 +264,11 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Maybe a, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   Embed tag (QueryParam sym a :> api) where
-
-  type PayloadIn (QueryParam sym a :> api) =
-    (Maybe a, PayloadIn api)
-
-  type PayloadOut (QueryParam sym a :> api) =
-    PayloadOut api
 
   type FireIn' tag h (QueryParam sym a :> api) =
     FireIn' tag ((Maybe a), h) api
@@ -369,20 +303,11 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Maybe a, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   Embed tag (QueryParams sym a :> api) where
-
-  type PayloadIn (QueryParams sym a :> api) =
-    ([a], PayloadIn api)
-
-  type PayloadOut (QueryParams sym a :> api) =
-    PayloadOut api
 
   type FireIn' tag h (QueryParams sym a :> api) =
     FireIn' tag ([a], h) api
@@ -417,20 +342,11 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy ([a], h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (KnownSymbol sym, Embed tag api) =>
   Embed tag (QueryFlag sym :> api) where
-
-  type PayloadIn (QueryFlag sym :> api) =
-    (Bool, PayloadIn api)
-
-  type PayloadOut (QueryFlag sym :> api) =
-    PayloadOut api
 
   type FireIn' tag h (QueryFlag sym :> api) =
     FireIn' tag (Bool, h) api
@@ -465,20 +381,11 @@ instance (KnownSymbol sym, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Bool, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (AllCTUnrender list a, Embed tag api) =>
   Embed tag (ReqBody list a :> api) where
-
-  type PayloadIn (ReqBody list a :> api) =
-    (a, PayloadIn api)
-
-  type PayloadOut (ReqBody list a :> api) =
-    PayloadOut api
 
   type FireIn' tag h (ReqBody list a :> api) =
     FireIn' tag (a, h) api
@@ -513,20 +420,11 @@ instance (AllCTUnrender list a, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (a, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (KnownSymbol path, Embed tag api) =>
   Embed tag (path :> api) where
-
-  type PayloadIn (path :> api) =
-    PayloadIn api
-
-  type PayloadOut (path :> api) =
-    PayloadOut api
 
   type FireIn' tag h (path :> api) =
     FireIn' tag h api
@@ -561,20 +459,11 @@ instance (KnownSymbol path, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy h) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (Embed tag api) =>
   Embed tag (IsSecure :> api) where
-
-  type PayloadIn (IsSecure :> api) =
-    (IsSecure, PayloadIn api)
-
-  type PayloadOut (IsSecure :> api) =
-    PayloadOut api
 
   type FireIn' tag h (IsSecure :> api) =
     FireIn' tag (IsSecure, h) api
@@ -609,20 +498,11 @@ instance (EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (IsSecure, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (Embed tag api) =>
   Embed tag (HttpVersion :> api) where
-
-  type PayloadIn (HttpVersion :> api) =
-    (HttpVersion, PayloadIn api)
-
-  type PayloadOut (HttpVersion :> api) =
-    PayloadOut api
 
   type FireIn' tag h (HttpVersion :> api) =
     FireIn' tag (HttpVersion, h) api
@@ -657,20 +537,11 @@ instance (EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (HttpVersion, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (Embed tag api) =>
   Embed tag (RemoteHost :> api) where
-
-  type PayloadIn (RemoteHost :> api) =
-    (SockAddr, PayloadIn api)
-
-  type PayloadOut (RemoteHost :> api) =
-    PayloadOut api
 
   type FireIn' tag h (RemoteHost :> api) =
     FireIn' tag (SockAddr, h) api
@@ -705,20 +576,11 @@ instance (EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (SockAddr, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (Embed tag api) =>
   Embed tag (Vault :> api) where
-
-  type PayloadIn (Vault :> api) =
-    (Vault, PayloadIn api)
-
-  type PayloadOut (Vault :> api) =
-    PayloadOut api
 
   type FireIn' tag h (Vault :> api) =
     FireIn' tag (Vault, h) api
@@ -753,20 +615,11 @@ instance (EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Vault, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (KnownSymbol realm, Embed tag api) =>
   Embed tag (BasicAuth realm usr :> api) where
-
-  type PayloadIn (BasicAuth realm usr :> api) =
-    (usr, PayloadIn api)
-
-  type PayloadOut (BasicAuth realm usr :> api) =
-    PayloadOut api
 
   type FireIn' tag h (BasicAuth realm usr :> api) =
     FireIn' tag (usr, h) api
@@ -801,20 +654,11 @@ instance (KnownSymbol realm, EmbedEvents t tag api) =>
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (usr, h)) (Proxy :: Proxy api)
 
-  mkOut _ =
-    mkOut (Proxy :: Proxy api)
-
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
 instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
   Embed tag (Verb (method :: k1) status ctypes a) where
-
-  type PayloadIn (Verb method status ctypes a) =
-    ()
-
-  type PayloadOut (Verb method status ctypes a) =
-    Either ServantErr a
 
   type FireIn' tag h (Verb method status ctypes a) =
     (tag, RevTupleListFlatten h) -> IO ()
@@ -859,9 +703,6 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
     newTriggerEvent
 
   splitPair _ _ _ _ =
-    id
-
-  mkOut _ =
     id
 
   addToQueue _ _ eo q =
