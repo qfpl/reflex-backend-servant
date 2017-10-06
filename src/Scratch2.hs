@@ -24,6 +24,7 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownSymbol, KnownNat)
 
 import Control.Monad.Trans (MonadIO, liftIO)
+import Control.Monad.Except (throwError)
 
 import Control.Concurrent.STM
 import qualified Control.Concurrent.STM.Map as SM
@@ -51,30 +52,12 @@ class Embed tag api where
           -> Proxy api
           -> m (Queues tag api)
 
-  {-
-  serve :: Proxy api
-        -> tag
-        -> Queues tag api
-        -> ((tag, PayloadIn api) -> IO ())
-        -> Server api
-  serve :: takes a tag and a Queues and a firing function
-           and produces a ServerT m api?
-  -- builds up a value of type PayloadIn
-  -- fire of the event
-  -- wait for a result based on tag
-  -- return the result
-  -}
-
 class Embed tag api => EmbedEvents t tag api where
-  type EventsInTuple t tag api
-  type EventsInTuple t tag api = EventsInTuple' t tag () api
   type EventsIn t tag api
   type EventsIn t tag api = EventsIn' t tag () api
 
   type PairIn' t tag h api
   type FireIn' t tag h api
-
-  type EventsInTuple' t tag h api
   type EventsIn' t tag h api
   type EventsOut t tag api
 
@@ -92,7 +75,18 @@ class Embed tag api => EmbedEvents t tag api where
             -> Proxy h
             -> Proxy api
             -> PairIn' t tag h api
-            -> (FireIn' t tag h api, EventsIn' t tag h api)
+            -> (EventsIn' t tag h api, FireIn' t tag h api)
+
+  serve :: ( Eq tag
+           , Hashable tag
+           )
+        => Proxy t
+        -> Proxy api
+        -> tag
+        -> h
+        -> FireIn' t tag h api
+        -> Queues tag api
+        -> Server api
 
   mkOut :: Reflex t
         => Proxy api
@@ -141,10 +135,6 @@ instance (EmbedEvents t tag a, EmbedEvents t tag b) =>
     FireIn' t tag h a :<|>
     FireIn' t tag h b
 
-  type EventsInTuple' t tag h (a :<|> b) =
-    EventsInTuple' t tag h a :<|>
-    EventsInTuple' t tag h b
-
   type EventsIn' t tag h (a :<|> b) =
     EventsIn' t tag h a :<|>
     EventsIn' t tag h b
@@ -152,12 +142,21 @@ instance (EmbedEvents t tag a, EmbedEvents t tag b) =>
   type EventsOut t tag (a :<|> b) =
     EventsOut t tag a :<|> EventsOut t tag b
 
+  mkPair pTag pH _ =
+    (:<|>) <$>
+      mkPair pTag pH (Proxy :: Proxy a) <*>
+      mkPair pTag pH (Proxy :: Proxy b)
+
   splitPair pT pTag pH _ (pA :<|> pB) =
     let
       (fA, eA) = splitPair pT pTag pH (Proxy :: Proxy a) pA
       (fB, eB) = splitPair pT pTag pH (Proxy :: Proxy b) pB
     in
       (fA :<|> fB, eA :<|> eB)
+
+  serve pT _ t h (fA :<|> fB) (qA :<|> qB) =
+    serve pT (Proxy :: Proxy a) t h fA qA :<|>
+    serve pT (Proxy :: Proxy b) t h fB qB
 
   mkOut _ ee =
     let
@@ -195,9 +194,6 @@ instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
 instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (Capture capture a :> api)  where
 
-  type EventsInTuple' t tag h (Capture capture a :> api) =
-    EventsInTuple' t tag (a, h) api
-
   type PairIn' t tag h (Capture capture a :> api) =
     PairIn' t tag (a, h) api
 
@@ -210,8 +206,14 @@ instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   type EventsOut t tag (Capture capture a :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (a, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (a, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -237,9 +239,6 @@ instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
 instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (CaptureAll capture a :> api) where
 
-  type EventsInTuple' t tag h (CaptureAll capture a :> api) =
-    EventsInTuple' t tag ([a], h) api
-
   type PairIn' t tag h (CaptureAll capture a :> api) =
     PairIn' t tag ([a], h) api
 
@@ -252,8 +251,14 @@ instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   type EventsOut t tag (CaptureAll capture a :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy ([a], h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy ([a], h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -279,9 +284,6 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
 instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (Header sym a :> api) where
 
-  type EventsInTuple' t tag h (Header sym a :> api) =
-    EventsInTuple' t tag ((Maybe a), h) api
-
   type PairIn' t tag h (Header sym a :> api) =
     PairIn' t tag ((Maybe a), h) api
 
@@ -294,8 +296,14 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   type EventsOut t tag (Header sym a :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (Maybe a, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Maybe a, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -321,9 +329,6 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
 instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (QueryParam sym a :> api) where
 
-  type EventsInTuple' t tag h (QueryParam sym a :> api) =
-    EventsInTuple' t tag ((Maybe a), h) api
-
   type PairIn' t tag h (QueryParam sym a :> api) =
     PairIn' t tag ((Maybe a), h) api
 
@@ -336,8 +341,14 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   type EventsOut t tag (QueryParam sym a :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (Maybe a, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Maybe a, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -363,9 +374,6 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
 instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (QueryParams sym a :> api) where
 
-  type EventsInTuple' t tag h (QueryParams sym a :> api) =
-    EventsInTuple' t tag ([a], h) api
-
   type PairIn' t tag h (QueryParams sym a :> api) =
     PairIn' t tag ([a], h) api
 
@@ -378,8 +386,14 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   type EventsOut t tag (QueryParams sym a :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy ([a], h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy ([a], h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -405,9 +419,6 @@ instance (KnownSymbol sym, Embed tag api) =>
 instance (KnownSymbol sym, EmbedEvents t tag api) =>
   EmbedEvents t tag (QueryFlag sym :> api) where
 
-  type EventsInTuple' t tag h (QueryFlag sym :> api) =
-    EventsInTuple' t tag (Bool, h) api
-
   type PairIn' t tag h (QueryFlag sym :> api) =
     PairIn' t tag (Bool, h) api
 
@@ -420,8 +431,14 @@ instance (KnownSymbol sym, EmbedEvents t tag api) =>
   type EventsOut t tag (QueryFlag sym :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (Bool, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Bool, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -447,9 +464,6 @@ instance (AllCTUnrender list a, Embed tag api) =>
 instance (AllCTUnrender list a, EmbedEvents t tag api) =>
   EmbedEvents t tag (ReqBody list a :> api) where
 
-  type EventsInTuple' t tag h (ReqBody list a :> api) =
-    EventsInTuple' t tag (a, h) api
-
   type PairIn' t tag h (ReqBody list a :> api) =
     PairIn' t tag (a, h) api
 
@@ -462,8 +476,14 @@ instance (AllCTUnrender list a, EmbedEvents t tag api) =>
   type EventsOut t tag (ReqBody list a :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (a, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (a, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -489,9 +509,6 @@ instance (KnownSymbol path, Embed tag api) =>
 instance (KnownSymbol path, EmbedEvents t tag api) =>
   EmbedEvents t tag (path :> api) where
 
-  type EventsInTuple' t tag h (path :> api) =
-    EventsInTuple' t tag h api
-
   type PairIn' t tag h (path :> api) =
     PairIn' t tag h api
 
@@ -504,8 +521,14 @@ instance (KnownSymbol path, EmbedEvents t tag api) =>
   type EventsOut t tag (path :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy h) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy h) (Proxy :: Proxy api)
+
+  serve pT _ t h f =
+    serve pT (Proxy :: Proxy api) t h f
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -531,9 +554,6 @@ instance (Embed tag api) =>
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (IsSecure :> api) where
 
-  type EventsInTuple' t tag h (IsSecure :> api) =
-    EventsInTuple' t tag (IsSecure, h) api
-
   type PairIn' t tag h (IsSecure :> api) =
     PairIn' t tag (IsSecure, h) api
 
@@ -546,8 +566,14 @@ instance (EmbedEvents t tag api) =>
   type EventsOut t tag (IsSecure :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (IsSecure, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (IsSecure, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -573,9 +599,6 @@ instance (Embed tag api) =>
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (HttpVersion :> api) where
 
-  type EventsInTuple' t tag h (HttpVersion :> api) =
-    EventsInTuple' t tag (HttpVersion, h) api
-
   type PairIn' t tag h (HttpVersion :> api) =
     PairIn' t tag (HttpVersion, h) api
 
@@ -588,8 +611,14 @@ instance (EmbedEvents t tag api) =>
   type EventsOut t tag (HttpVersion :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (HttpVersion, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (HttpVersion, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -615,9 +644,6 @@ instance (Embed tag api) =>
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (RemoteHost :> api) where
 
-  type EventsInTuple' t tag h (RemoteHost :> api) =
-    EventsInTuple' t tag (SockAddr, h) api
-
   type PairIn' t tag h (RemoteHost :> api) =
     PairIn' t tag (SockAddr, h) api
 
@@ -630,8 +656,14 @@ instance (EmbedEvents t tag api) =>
   type EventsOut t tag (RemoteHost :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (SockAddr, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (SockAddr, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -657,9 +689,6 @@ instance (Embed tag api) =>
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (Vault :> api) where
 
-  type EventsInTuple' t tag h (Vault :> api) =
-    EventsInTuple' t tag (Vault, h) api
-
   type PairIn' t tag h (Vault :> api) =
     PairIn' t tag (Vault, h) api
 
@@ -672,8 +701,14 @@ instance (EmbedEvents t tag api) =>
   type EventsOut t tag (Vault :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (Vault, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (Vault, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -699,9 +734,6 @@ instance (KnownSymbol realm, Embed tag api) =>
 instance (KnownSymbol realm, EmbedEvents t tag api) =>
   EmbedEvents t tag (BasicAuth realm usr :> api) where
 
-  type EventsInTuple' t tag h (BasicAuth realm usr :> api) =
-    EventsInTuple' t tag (usr, h) api
-
   type PairIn' t tag h (BasicAuth realm usr :> api) =
     PairIn' t tag (usr, h) api
 
@@ -714,8 +746,14 @@ instance (KnownSymbol realm, EmbedEvents t tag api) =>
   type EventsOut t tag (BasicAuth realm usr :> api) =
     EventsOut t tag api
 
+  mkPair pTag (_ :: Proxy h) _ =
+    mkPair pTag (Proxy :: Proxy (usr, h)) (Proxy :: Proxy api)
+
   splitPair pT pTag (_ :: Proxy h) _ =
     splitPair pT pTag (Proxy :: Proxy (usr, h)) (Proxy :: Proxy api)
+
+  serve pT _ t h f q a =
+    serve pT (Proxy :: Proxy api) t (a, h) f q
 
   mkOut _ =
     mkOut (Proxy :: Proxy api)
@@ -741,11 +779,8 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
 instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
   EmbedEvents t tag (Verb (method :: k1) status ctypes a) where
 
-  type EventsInTuple' t tag h (Verb method status ctypes a) =
-    Event t (tag, RevTupleList h)
-
   type PairIn' t tag h (Verb method status ctypes a) =
-    ((tag, RevTupleListFlatten h) -> IO (), Event t (tag, RevTupleListFlatten h))
+    (Event t (tag, RevTupleListFlatten h), (tag, RevTupleListFlatten h) -> IO ())
 
   type FireIn' t tag h (Verb method status ctypes a) =
     (tag, RevTupleListFlatten h) -> IO ()
@@ -756,8 +791,26 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
   type EventsOut t tag (Verb method status ctypes a) =
     Event t (tag, Either ServantErr a)
 
+  mkPair pTag (_ :: Proxy h) _ =
+    newTriggerEvent
+
   splitPair _ _ _ _ =
     id
+
+  serve pT _ t h f q = do
+    res <- liftIO $ do
+      f (t, revTupleListFlatten h)
+      atomically $ do
+        v <- SM.lookup t q
+        case v of
+          Just x -> do
+            SM.delete t q
+            return x
+          Nothing ->
+            retry
+    case res of
+      Left e -> throwError e
+      Right x -> pure x
 
   mkOut _ =
     id
@@ -769,73 +822,37 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
       performEvent_ $ f <$> eo
 
 class TupleList xs where
-  type TupleListFlatten xs
   type RevTupleListFlatten xs
-  type RevTupleList xs
 
-  tupleListFlatten :: xs -> TupleListFlatten xs
   revTupleListFlatten :: xs -> RevTupleListFlatten xs
-  revTupleList :: xs -> RevTupleList xs
 
 instance TupleList () where
-  type TupleListFlatten () =
-    ()
   type RevTupleListFlatten () =
     ()
-  type RevTupleList () =
-    ()
 
-  tupleListFlatten _ =
-    ()
   revTupleListFlatten _ =
-    ()
-  revTupleList _ =
     ()
 
 instance TupleList (a, ()) where
-  type TupleListFlatten (a, ()) =
-    a
   type RevTupleListFlatten (a, ()) =
     a
-  type RevTupleList (a, ()) =
-    (a, ())
 
-  tupleListFlatten (a, ()) =
-    a
   revTupleListFlatten (a, ()) =
     a
-  revTupleList (a, ()) =
-    (a, ())
 
 instance TupleList (a, (b, ())) where
-  type TupleListFlatten (a, (b, ())) =
-    (a, b)
   type RevTupleListFlatten (a, (b, ())) =
     (b, a)
-  type RevTupleList (a, (b, ())) =
-    (b, (a, ()))
 
-  tupleListFlatten (a, (b, ())) =
-    (a, b)
   revTupleListFlatten (a, (b, ())) =
     (b, a)
-  revTupleList (a, (b, ())) =
-    (b, (a, ()))
 
 instance TupleList (a, (b, (c, ()))) where
-  type TupleListFlatten (a, (b, (c, ()))) =
-    (a, b, c)
   type RevTupleListFlatten (a, (b, (c, ()))) =
     (c, b, a)
-  type RevTupleList (a, (b, (c, ()))) =
-    (c, (b, (a, ())))
 
-  tupleListFlatten (a, (b, (c, ()))) =
-    (a, b, c)
   revTupleListFlatten (a, (b, (c, ()))) =
     (c, b, a)
-  revTupleList (a, (b, (c, ()))) =
-    (c, (b, (a, ())))
 
 data Payload = Payload { value :: String }
   deriving (Eq, Ord, Show, Generic)
