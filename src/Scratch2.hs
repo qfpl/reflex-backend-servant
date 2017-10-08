@@ -70,7 +70,6 @@ serveHost pApi mkT network = do
   eo <- network ei
   addToQueue pTag pApi eo q
   pure . liftIO . run 8080 . serve pApi $ serve' pApi mkT () f q
-  -- pure ()
 
 class Embed tag api where
   type FireIn' tag h api
@@ -805,8 +804,8 @@ getNextTicket tv = do
   writeTVar tv $ Ticket (succ t)
   return $ Ticket t
 
-asdf2 :: IO ()
-asdf2 = do
+asdf :: IO ()
+asdf = do
   td <- newTicketDispenser
   let mkT = atomically $ getNextTicket td
   s <- basicHost $ serveHost (Proxy :: Proxy MyAPI) mkT myAPINetwork
@@ -838,3 +837,36 @@ myAPINetwork (eGet :<|> ePost :<|> eDelete) = do
     eDeleteOut = (\(t, _) -> (t, Right NoContent)) <$> eDelete
 
   pure $ eGetOut :<|> ePostOut :<|> eDeleteOut
+
+type MyAPI2 =
+  "add" :> Capture "addend" Int :> Get '[JSON] NoContent :<|>
+  "total" :> Get '[JSON] Int :<|>
+  "total" :> "after" :> Capture "count" Int :> Get '[JSON] Int :<|>
+  "total" :> "delay" :> Get '[JSON] Int
+
+asdf2 :: IO ()
+asdf2 = do
+  td <- newTicketDispenser
+  let mkT = atomically $ getNextTicket td
+  s <- basicHost $ serveHost (Proxy :: Proxy MyAPI2) mkT myAPI2Network
+  s
+
+myAPI2Network ::
+  EventsIn' t Ticket () MyAPI2 ->
+  BasicGuest t m (EventsOut t Ticket MyAPI2)
+myAPI2Network (eAddIn :<|> eTotalIn :<|> eTotalAfterIn :<|> eTotalDelayIn) = do
+  dTotal <- foldDyn ($) 0 $
+    ((+) . snd) <$> eAddIn
+
+  let
+    eAddOut = (\(t, _) -> (t, Right NoContent)) <$> eAddIn
+    eTotalOut = (\r (t, _) -> (t, Right r)) <$> current dTotal <@> eTotalIn
+    eTotalAfterOut = never
+    eTotalDelayOut = never
+
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add in " ++ show x) <$> eAddIn
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add out " ++ show x) <$> eAddOut
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total in " ++ show x) <$> eTotalIn
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total out " ++ show x) <$> eTotalOut
+
+  pure $ eAddOut :<|> eTotalOut :<|> eTotalAfterOut :<|> eTotalDelayOut
