@@ -27,6 +27,7 @@ library
                      , servant 
                      , servant-server
                      , http-api-data
+                     , warp
                      , reflex-basic-host
   hs-source-dirs:      src
   ghc-options:         -Wall

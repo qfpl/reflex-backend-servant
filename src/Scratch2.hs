@@ -17,6 +17,7 @@ Portability : non-portable
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Scratch2 where
 
 import Data.Proxy (Proxy(..))
@@ -35,12 +36,41 @@ import Network.Socket (SockAddr)
 
 import Servant.API
 import Servant.API.ContentTypes (AllCTRender(..), AllCTUnrender(..))
-import Servant.Server (ServantErr, Server)
+import Servant.Server (ServantErr, Server, HasServer, serve)
+import Network.Wai.Handler.Warp (run)
 
 import Reflex
+import Reflex.Basic.Host
 
 import GHC.Generics
 import Data.Aeson
+
+serveHost ::
+  forall t tag api m.
+  ( Reflex t
+  , MonadIO m
+  , EmbedEvents t tag api
+  , Eq tag
+  , Hashable tag
+  , TupleListConstraints () api
+  , HasServer api '[]
+  ) =>
+  Proxy api ->
+  IO tag ->
+  (EventsIn' t tag () api -> BasicGuest t m (EventsOut t tag api)) ->
+  BasicGuest t m (IO ())
+serveHost pApi mkT network = do
+  let
+    pT = Proxy :: Proxy t
+    pTag = Proxy :: Proxy tag
+    pH = Proxy :: Proxy ()
+  q <- liftIO $ mkQueue pTag pApi
+  p :: PairIn' t tag () api <- mkPair pTag pH pApi
+  let (ei, f) = splitPair pT pTag pH pApi p
+  eo <- network ei
+  addToQueue pTag pApi eo q
+  pure . liftIO . run 8080 . serve pApi $ serve' pApi mkT () f q
+  -- pure ()
 
 class Embed tag api where
   type FireIn' tag h api
@@ -52,16 +82,16 @@ class Embed tag api where
           -> Proxy api
           -> m (Queues tag api)
 
-  serve :: ( Eq tag
-           , Hashable tag
-           , TupleListConstraints h api
-           )
-        => Proxy api
-        -> tag
-        -> h
-        -> FireIn' tag h api
-        -> Queues tag api
-        -> Server api
+  serve' :: ( Eq tag
+            , Hashable tag
+            , TupleListConstraints h api
+            )
+         => Proxy api
+         -> IO tag
+         -> h
+         -> FireIn' tag h api
+         -> Queues tag api
+         -> Server api
 
 class Embed tag api => EmbedEvents t tag api where
   type PairIn' t tag h api
@@ -116,9 +146,9 @@ instance (Embed tag a, Embed tag b) =>
       mkQueue pt (Proxy :: Proxy a) <*>
       mkQueue pt (Proxy :: Proxy b)
 
-  serve _ t h (fA :<|> fB) (qA :<|> qB) =
-    serve (Proxy :: Proxy a) t h fA qA :<|>
-    serve (Proxy :: Proxy b) t h fB qB
+  serve' _ t h (fA :<|> fB) (qA :<|> qB) =
+    serve' (Proxy :: Proxy a) t h fA qA :<|>
+    serve' (Proxy :: Proxy b) t h fB qB
 
 instance (EmbedEvents t tag a, EmbedEvents t tag b) =>
   EmbedEvents t tag (a :<|> b) where
@@ -165,8 +195,8 @@ instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (Capture capture a :> api)  where
@@ -204,8 +234,8 @@ instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (CaptureAll capture a :> api) where
@@ -243,8 +273,8 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (Header sym a :> api) where
@@ -282,8 +312,8 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (QueryParam sym a :> api) where
@@ -321,8 +351,8 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   EmbedEvents t tag (QueryParams sym a :> api) where
@@ -360,8 +390,8 @@ instance (KnownSymbol sym, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (KnownSymbol sym, EmbedEvents t tag api) =>
   EmbedEvents t tag (QueryFlag sym :> api) where
@@ -399,8 +429,8 @@ instance (AllCTUnrender list a, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (AllCTUnrender list a, EmbedEvents t tag api) =>
   EmbedEvents t tag (ReqBody list a :> api) where
@@ -438,8 +468,8 @@ instance (KnownSymbol path, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _  =
-    serve (Proxy :: Proxy api)
+  serve' _  =
+    serve' (Proxy :: Proxy api)
 
 instance (KnownSymbol path, EmbedEvents t tag api) =>
   EmbedEvents t tag (path :> api) where
@@ -477,8 +507,8 @@ instance (Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (IsSecure :> api) where
@@ -516,8 +546,8 @@ instance (Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (HttpVersion :> api) where
@@ -555,8 +585,8 @@ instance (Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (RemoteHost :> api) where
@@ -594,8 +624,8 @@ instance (Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (EmbedEvents t tag api) =>
   EmbedEvents t tag (Vault :> api) where
@@ -633,8 +663,8 @@ instance (KnownSymbol realm, Embed tag api) =>
   mkQueue pt _ =
     mkQueue pt (Proxy :: Proxy api)
 
-  serve _ t h f q a =
-    serve (Proxy :: Proxy api) t (a, h) f q
+  serve' _ t h f q a =
+    serve' (Proxy :: Proxy api) t (a, h) f q
 
 instance (KnownSymbol realm, EmbedEvents t tag api) =>
   EmbedEvents t tag (BasicAuth realm usr :> api) where
@@ -672,8 +702,9 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
   mkQueue _ _ =
     liftIO . atomically $ SM.empty
 
-  serve _ t h f q = do
+  serve' _ mkT h f q = do
     res <- liftIO $ do
+      t <- mkT
       f (t, revTupleListFlatten h)
       atomically $ do
         v <- SM.lookup t q
@@ -699,7 +730,7 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
   type EventsOut t tag (Verb method status ctypes a) =
     Event t (tag, Either ServantErr a)
 
-  mkPair _ (_ :: Proxy h) _ =
+  mkPair _ (_ :: Proxy h) _ = do
     newTriggerEvent
 
   splitPair _ _ _ _ =
@@ -760,3 +791,50 @@ type TestAPI = "one" :> Capture "i1" Int :> TestAPI2
 
 type TestAPI2 = "three" :> Capture "i2" Int :> Get '[JSON] Int
            :<|> "four" :> Capture "b2" Bool :> Get '[JSON] Bool
+
+newtype Ticket = Ticket Int
+  deriving (Eq, Ord, Show, Hashable)
+
+newTicketDispenser :: IO (TVar Ticket)
+newTicketDispenser =
+  atomically . newTVar . Ticket $ 0
+
+getNextTicket :: TVar Ticket -> STM Ticket
+getNextTicket tv = do
+  Ticket t <- readTVar tv
+  writeTVar tv $ Ticket (succ t)
+  return $ Ticket t
+
+asdf2 :: IO ()
+asdf2 = do
+  td <- newTicketDispenser
+  let mkT = atomically $ getNextTicket td
+  s <- basicHost $ serveHost (Proxy :: Proxy MyAPI) mkT myAPINetwork
+  s
+
+myAPINetwork ::
+  EventsIn' t Ticket () MyAPI ->
+  BasicGuest t m (EventsOut t Ticket MyAPI)
+myAPINetwork (eGet :<|> ePost :<|> eDelete) = do
+  let
+    remove i xs
+      | i < 0 = xs
+      | i >= length xs = xs
+      | otherwise = let (ys, _ : zs) = splitAt i xs in ys ++ zs
+
+  dList <- foldDyn ($) [] . leftmost $ [
+      ((:) . value . snd) <$> ePost
+    , (remove . snd) <$> eDelete
+    ]
+
+  performEvent_ $ (liftIO . putStrLn $ "FRP: get") <$ eGet
+  performEvent_ $ (liftIO . putStrLn $ "FRP: post") <$ ePost
+  performEvent_ $ (liftIO . putStrLn $ "FRP: delete") <$ eDelete
+
+  let
+    fnGet = Right . fmap Payload . reverse
+    eGetOut = (\l (t, _) -> (t, fnGet l)) <$> current dList <@> eGet
+    ePostOut = (\(t, _) -> (t, Right NoContent)) <$> ePost
+    eDeleteOut = (\(t, _) -> (t, Right NoContent)) <$> eDelete
+
+  pure $ eGetOut :<|> ePostOut :<|> eDeleteOut
