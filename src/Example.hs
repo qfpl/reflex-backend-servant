@@ -76,9 +76,6 @@ myAPINetwork (eAddIn :<|> eTotalIn :<|> eTotalAfterIn :<|> eTotalDelayIn) = mdo
     eAddOut =
       mkAddOut <$> eAddIn
 
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add in " ++ show x) <$> eAddIn
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add out " ++ show x) <$> eAddOut
-
   -- The add requests are used to build up a total
 
   dTotal <- foldDyn ($) 0 $
