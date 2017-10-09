@@ -18,12 +18,14 @@ library
                      , hashable >=1.2 && <1.3
                      , stm >=2.4 && <2.5
                      , bytestring >= 0.10 && < 0.11
+                     , containers
                      , aeson
                      , network
                      , ttrie
                      , dependent-sum
                      , ref-tf
                      , reflex
+                     , reflex-dom-core
                      , servant 
                      , servant-server
                      , http-api-data

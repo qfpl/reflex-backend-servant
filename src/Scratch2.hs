@@ -24,6 +24,7 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownSymbol, KnownNat)
 import GHC.Exts (Constraint)
 
+import Control.Monad (void)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Control.Monad.Except (throwError)
 
@@ -34,12 +35,16 @@ import Data.Hashable (Hashable(..))
 
 import Network.Socket (SockAddr)
 
+import Data.Map (Map)
+import qualified Data.Map as Map
+
 import Servant.API
 import Servant.API.ContentTypes (AllCTRender(..), AllCTUnrender(..))
 import Servant.Server (ServantErr, Server, HasServer, serve)
 import Network.Wai.Handler.Warp (run)
 
 import Reflex
+import Reflex.Dom.Core
 import Reflex.Basic.Host
 
 import GHC.Generics
@@ -727,7 +732,7 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
     Event t (tag, RevTupleListFlatten h)
 
   type EventsOut t tag (Verb method status ctypes a) =
-    Event t (tag, Either ServantErr a)
+    Event t (Map tag (Either ServantErr a))
 
   mkPair _ (_ :: Proxy h) _ = do
     newTriggerEvent
@@ -737,9 +742,9 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
 
   addToQueue _ _ eo q =
     let
-      f (k, v) = liftIO . atomically $ SM.insert k v q
+      f k v = liftIO . atomically $ SM.insert k v q
     in
-      performEvent_ $ f <$> eo
+      performEvent_ $ (void . Map.traverseWithKey f) <$> eo
 
 class TupleList xs where
   type RevTupleListFlatten xs
@@ -774,7 +779,7 @@ instance TupleList (a, (b, (c, ()))) where
   revTupleListFlatten (a, (b, (c, ()))) =
     (c, b, a)
 
-newtype Payload = Payload { value :: String }
+newtype Payload = Payload { payloadValue :: String }
   deriving (Eq, Ord, Show, Generic)
 
 instance FromJSON Payload
@@ -822,7 +827,7 @@ myAPINetwork (eGet :<|> ePost :<|> eDelete) = do
       | otherwise = let (ys, _ : zs) = splitAt i xs in ys ++ zs
 
   dList <- foldDyn ($) [] . leftmost $ [
-      ((:) . value . snd) <$> ePost
+      ((:) . payloadValue . snd) <$> ePost
     , (remove . snd) <$> eDelete
     ]
 
@@ -832,9 +837,9 @@ myAPINetwork (eGet :<|> ePost :<|> eDelete) = do
 
   let
     fnGet = Right . fmap Payload . reverse
-    eGetOut = (\l (t, _) -> (t, fnGet l)) <$> current dList <@> eGet
-    ePostOut = (\(t, _) -> (t, Right NoContent)) <$> ePost
-    eDeleteOut = (\(t, _) -> (t, Right NoContent)) <$> eDelete
+    eGetOut = (\l (t, _) -> (t =: fnGet l)) <$> current dList <@> eGet
+    ePostOut = (\(t, _) -> (t =: Right NoContent)) <$> ePost
+    eDeleteOut = (\(t, _) -> (t =: Right NoContent)) <$> eDelete
 
   pure $ eGetOut :<|> ePostOut :<|> eDeleteOut
 
@@ -842,7 +847,7 @@ type MyAPI2 =
   "add" :> Capture "addend" Int :> Get '[JSON] NoContent :<|>
   "total" :> Get '[JSON] Int :<|>
   "total" :> "after" :> Capture "count" Int :> Get '[JSON] Int :<|>
-  "total" :> "delay" :> Get '[JSON] Int
+  "total" :> "delay" :> Capture "seconds" Int :> Get '[JSON] Int
 
 asdf2 :: IO ()
 asdf2 = do
@@ -858,15 +863,50 @@ myAPI2Network (eAddIn :<|> eTotalIn :<|> eTotalAfterIn :<|> eTotalDelayIn) = do
   dTotal <- foldDyn ($) 0 $
     ((+) . snd) <$> eAddIn
 
+  dCountdown <- foldDyn ($) Map.empty . mergeWith (.) $ [
+      uncurry Map.insert <$> eTotalAfterIn
+    , Map.filter (> 0) . fmap pred <$ eAddIn
+    ]
+
+  {- this needs to go into a map based on tickets in order to work
+     which probably also requires listWithKey
+     otherwise it is working fine
   let
-    eAddOut = (\(t, _) -> (t, Right NoContent)) <$> eAddIn
-    eTotalOut = (\r (t, _) -> (t, Right r)) <$> current dTotal <@> eTotalIn
-    eTotalAfterOut = never
-    eTotalDelayOut = never
+    eDebounceAdd = (\(t, d) -> debounce (fromIntegral d) (t <$ eAddIn)) <$> eTotalDelayIn
+  eDebounced <- fmap snd $ runWithReplace (pure ()) eDebounceAdd
+  eTicketDebounced <- switchPromptly never eDebounced
+  -}
+  let
+    eTicketDebounced = never
+
+  let
+    mkAddOut (t, _) =
+      t =: Right NoContent
+    eAddOut =
+      mkAddOut <$> eAddIn
+
+    mkTotalOut r (t, _) =
+      t =: Right r
+    eTotalOut =
+      mkTotalOut <$> current dTotal <@> eTotalIn
+
+    mkTotalAfterOut total =
+      fmap (const $ Right total) . Map.filter (== 0) . fmap pred
+    eTotalAfterOut =
+      ffilter (not . Map.null) $ mkTotalAfterOut <$> current dTotal <*> current dCountdown <@ eAddIn
+
+    mkTotalDelayOut r t =
+      t =: Right r
+    eTotalDelayOut =
+      mkTotalDelayOut <$> current dTotal <@> eTicketDebounced
 
   performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add in " ++ show x) <$> eAddIn
   performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add out " ++ show x) <$> eAddOut
   performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total in " ++ show x) <$> eTotalIn
   performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total out " ++ show x) <$> eTotalOut
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total after in " ++ show x) <$> eTotalAfterIn
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total after out " ++ show x) <$> eTotalAfterOut
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total delay in " ++ show x) <$> eTotalDelayIn
+  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total delay out " ++ show x) <$> eTotalDelayOut
 
   pure $ eAddOut :<|> eTotalOut :<|> eTotalAfterOut :<|> eTotalDelayOut
