@@ -4,7 +4,7 @@
 , stdenv, stm, these, transformers, ttrie, wai, warp
 }:
 mkDerivation {
-  pname = "servant-reflex-server";
+  pname = "reflex-server-servant";
   version = "0.1.0.0";
   src = ./.;
   isLibrary = true;

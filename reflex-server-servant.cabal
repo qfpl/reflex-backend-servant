@@ -1,4 +1,4 @@
-name:                servant-reflex-server
+name:                reflex-server-servant
 version:             0.1.0.0
 license:             BSD3
 license-file:        LICENSE
@@ -55,7 +55,7 @@ executable example
                      , reflex-basic-host
                      , transformers
                      , these
-                     , servant-reflex-server
+                     , reflex-server-servant
   hs-source-dirs:      exe
   ghc-options:         -Wall
   default-language:    Haskell2010

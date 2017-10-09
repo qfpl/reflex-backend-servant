@@ -15,6 +15,6 @@ let
     };
   };
 
-  drv = modifiedHaskellPackages.callPackage ./servant-reflex-server.nix {};
+  drv = modifiedHaskellPackages.callPackage ./reflex-server-servant.nix {};
 in
   drv
