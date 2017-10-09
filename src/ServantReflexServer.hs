@@ -18,7 +18,11 @@ Portability : non-portable
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Scratch2 where
+module ServantReflexServer (
+    ServantReflexServer(..)
+  , ServantReflexServerEvents(..)
+  , serverGuest
+  ) where
 
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownSymbol, KnownNat)
@@ -33,28 +37,26 @@ import qualified Control.Concurrent.STM.Map as SM
 
 import Data.Hashable (Hashable(..))
 
-import Network.Socket (SockAddr)
-
 import Data.Map (Map)
 import qualified Data.Map as Map
+
+import Network.Socket (SockAddr)
 
 import Servant.API
 import Servant.API.ContentTypes (AllCTRender(..), AllCTUnrender(..))
 import Servant.Server (ServantErr, Server, HasServer, serve)
-import Network.Wai.Handler.Warp (run)
+import Network.Wai (Application)
 
 import Reflex
-import Reflex.Dom.Core
 import Reflex.Basic.Host
 
-import GHC.Generics
-import Data.Aeson
+import Util.Tuples
 
-serveHost ::
+serverGuest ::
   forall t tag api m.
   ( Reflex t
   , MonadIO m
-  , EmbedEvents t tag api
+  , ServantReflexServerEvents t tag api
   , Eq tag
   , Hashable tag
   , TupleListConstraints () api
@@ -63,8 +65,8 @@ serveHost ::
   Proxy api ->
   IO tag ->
   (EventsIn' t tag () api -> BasicGuest t m (EventsOut t tag api)) ->
-  BasicGuest t m (IO ())
-serveHost pApi mkT network = do
+  BasicGuest t m (Application)
+serverGuest pApi mkT network = do
   let
     pT = Proxy :: Proxy t
     pTag = Proxy :: Proxy tag
@@ -74,9 +76,9 @@ serveHost pApi mkT network = do
   let (ei, f) = splitPair pT pTag pH pApi p
   eo <- network ei
   addToQueue pTag pApi eo q
-  pure . liftIO . run 8080 . serve pApi $ serve' pApi mkT () f q
+  pure . serve pApi $ serve' pApi mkT () f q
 
-class Embed tag api where
+class ServantReflexServer tag api where
   type FireIn' tag h api
   type Queues tag api
   type TupleListConstraints h api :: Constraint
@@ -97,7 +99,7 @@ class Embed tag api where
          -> Queues tag api
          -> Server api
 
-class Embed tag api => EmbedEvents t tag api where
+class ServantReflexServer tag api => ServantReflexServerEvents t tag api where
   type PairIn' t tag h api
   type EventsIn' t tag h api
   type EventsOut t tag api
@@ -132,8 +134,8 @@ class Embed tag api => EmbedEvents t tag api where
              -> m ()
 
 
-instance (Embed tag a, Embed tag b) =>
-  Embed tag (a :<|> b) where
+instance (ServantReflexServer tag a, ServantReflexServer tag b) =>
+  ServantReflexServer tag (a :<|> b) where
 
   type FireIn' tag h (a :<|> b) =
     FireIn' tag h a :<|>
@@ -154,8 +156,8 @@ instance (Embed tag a, Embed tag b) =>
     serve' (Proxy :: Proxy a) t h fA qA :<|>
     serve' (Proxy :: Proxy b) t h fB qB
 
-instance (EmbedEvents t tag a, EmbedEvents t tag b) =>
-  EmbedEvents t tag (a :<|> b) where
+instance (ServantReflexServerEvents t tag a, ServantReflexServerEvents t tag b) =>
+  ServantReflexServerEvents t tag (a :<|> b) where
 
   type PairIn' t tag h (a :<|> b) =
     PairIn' t tag h a :<|>
@@ -184,8 +186,8 @@ instance (EmbedEvents t tag a, EmbedEvents t tag b) =>
     addToQueue pt (Proxy :: Proxy a) eoA qA
     addToQueue pt (Proxy :: Proxy b) eoB qB
 
-instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
-  Embed tag (Capture capture a :> api)  where
+instance (KnownSymbol capture, FromHttpApiData a, ServantReflexServer tag api) =>
+  ServantReflexServer tag (Capture capture a :> api)  where
 
   type FireIn' tag h (Capture capture a :> api) =
     FireIn' tag (a, h) api
@@ -202,8 +204,8 @@ instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
-  EmbedEvents t tag (Capture capture a :> api)  where
+instance (KnownSymbol capture, FromHttpApiData a, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (Capture capture a :> api)  where
 
   type PairIn' t tag h (Capture capture a :> api) =
     PairIn' t tag (a, h) api
@@ -223,8 +225,8 @@ instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
-  Embed tag (CaptureAll capture a :> api) where
+instance (KnownSymbol capture, FromHttpApiData a, ServantReflexServer tag api) =>
+  ServantReflexServer tag (CaptureAll capture a :> api) where
 
   type FireIn' tag h (CaptureAll capture a :> api) =
     FireIn' tag ([a], h) api
@@ -241,8 +243,8 @@ instance (KnownSymbol capture, FromHttpApiData a, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
-  EmbedEvents t tag (CaptureAll capture a :> api) where
+instance (KnownSymbol capture, FromHttpApiData a, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (CaptureAll capture a :> api) where
 
   type PairIn' t tag h (CaptureAll capture a :> api) =
     PairIn' t tag ([a], h) api
@@ -262,8 +264,8 @@ instance (KnownSymbol capture, FromHttpApiData a, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
-  Embed tag (Header sym a :> api) where
+instance (KnownSymbol sym, FromHttpApiData a, ServantReflexServer tag api) =>
+  ServantReflexServer tag (Header sym a :> api) where
 
   type FireIn' tag h (Header sym a :> api) =
     FireIn' tag (Maybe a, h) api
@@ -280,8 +282,8 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
-  EmbedEvents t tag (Header sym a :> api) where
+instance (KnownSymbol sym, FromHttpApiData a, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (Header sym a :> api) where
 
   type PairIn' t tag h (Header sym a :> api) =
     PairIn' t tag (Maybe a, h) api
@@ -301,8 +303,8 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
-  Embed tag (QueryParam sym a :> api) where
+instance (KnownSymbol sym, FromHttpApiData a, ServantReflexServer tag api) =>
+  ServantReflexServer tag (QueryParam sym a :> api) where
 
   type FireIn' tag h (QueryParam sym a :> api) =
     FireIn' tag ((Maybe a), h) api
@@ -319,8 +321,8 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
-  EmbedEvents t tag (QueryParam sym a :> api) where
+instance (KnownSymbol sym, FromHttpApiData a, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (QueryParam sym a :> api) where
 
   type PairIn' t tag h (QueryParam sym a :> api) =
     PairIn' t tag ((Maybe a), h) api
@@ -340,8 +342,8 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
-  Embed tag (QueryParams sym a :> api) where
+instance (KnownSymbol sym, FromHttpApiData a, ServantReflexServer tag api) =>
+  ServantReflexServer tag (QueryParams sym a :> api) where
 
   type FireIn' tag h (QueryParams sym a :> api) =
     FireIn' tag ([a], h) api
@@ -358,8 +360,8 @@ instance (KnownSymbol sym, FromHttpApiData a, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
-  EmbedEvents t tag (QueryParams sym a :> api) where
+instance (KnownSymbol sym, FromHttpApiData a, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (QueryParams sym a :> api) where
 
   type PairIn' t tag h (QueryParams sym a :> api) =
     PairIn' t tag ([a], h) api
@@ -379,8 +381,8 @@ instance (KnownSymbol sym, FromHttpApiData a, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (KnownSymbol sym, Embed tag api) =>
-  Embed tag (QueryFlag sym :> api) where
+instance (KnownSymbol sym, ServantReflexServer tag api) =>
+  ServantReflexServer tag (QueryFlag sym :> api) where
 
   type FireIn' tag h (QueryFlag sym :> api) =
     FireIn' tag (Bool, h) api
@@ -397,8 +399,8 @@ instance (KnownSymbol sym, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (KnownSymbol sym, EmbedEvents t tag api) =>
-  EmbedEvents t tag (QueryFlag sym :> api) where
+instance (KnownSymbol sym, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (QueryFlag sym :> api) where
 
   type PairIn' t tag h (QueryFlag sym :> api) =
     PairIn' t tag (Bool, h) api
@@ -418,8 +420,8 @@ instance (KnownSymbol sym, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (AllCTUnrender list a, Embed tag api) =>
-  Embed tag (ReqBody list a :> api) where
+instance (AllCTUnrender list a, ServantReflexServer tag api) =>
+  ServantReflexServer tag (ReqBody list a :> api) where
 
   type FireIn' tag h (ReqBody list a :> api) =
     FireIn' tag (a, h) api
@@ -436,8 +438,8 @@ instance (AllCTUnrender list a, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (AllCTUnrender list a, EmbedEvents t tag api) =>
-  EmbedEvents t tag (ReqBody list a :> api) where
+instance (AllCTUnrender list a, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (ReqBody list a :> api) where
 
   type PairIn' t tag h (ReqBody list a :> api) =
     PairIn' t tag (a, h) api
@@ -457,8 +459,8 @@ instance (AllCTUnrender list a, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (KnownSymbol path, Embed tag api) =>
-  Embed tag (path :> api) where
+instance (KnownSymbol path, ServantReflexServer tag api) =>
+  ServantReflexServer tag (path :> api) where
 
   type FireIn' tag h (path :> api) =
     FireIn' tag h api
@@ -475,8 +477,8 @@ instance (KnownSymbol path, Embed tag api) =>
   serve' _  =
     serve' (Proxy :: Proxy api)
 
-instance (KnownSymbol path, EmbedEvents t tag api) =>
-  EmbedEvents t tag (path :> api) where
+instance (KnownSymbol path, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (path :> api) where
 
   type PairIn' t tag h (path :> api) =
     PairIn' t tag h api
@@ -496,8 +498,8 @@ instance (KnownSymbol path, EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (Embed tag api) =>
-  Embed tag (IsSecure :> api) where
+instance (ServantReflexServer tag api) =>
+  ServantReflexServer tag (IsSecure :> api) where
 
   type FireIn' tag h (IsSecure :> api) =
     FireIn' tag (IsSecure, h) api
@@ -514,8 +516,8 @@ instance (Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (EmbedEvents t tag api) =>
-  EmbedEvents t tag (IsSecure :> api) where
+instance (ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (IsSecure :> api) where
 
   type PairIn' t tag h (IsSecure :> api) =
     PairIn' t tag (IsSecure, h) api
@@ -535,8 +537,8 @@ instance (EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (Embed tag api) =>
-  Embed tag (HttpVersion :> api) where
+instance (ServantReflexServer tag api) =>
+  ServantReflexServer tag (HttpVersion :> api) where
 
   type FireIn' tag h (HttpVersion :> api) =
     FireIn' tag (HttpVersion, h) api
@@ -553,8 +555,8 @@ instance (Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (EmbedEvents t tag api) =>
-  EmbedEvents t tag (HttpVersion :> api) where
+instance (ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (HttpVersion :> api) where
 
   type PairIn' t tag h (HttpVersion :> api) =
     PairIn' t tag (HttpVersion, h) api
@@ -574,8 +576,8 @@ instance (EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (Embed tag api) =>
-  Embed tag (RemoteHost :> api) where
+instance (ServantReflexServer tag api) =>
+  ServantReflexServer tag (RemoteHost :> api) where
 
   type FireIn' tag h (RemoteHost :> api) =
     FireIn' tag (SockAddr, h) api
@@ -592,8 +594,8 @@ instance (Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (EmbedEvents t tag api) =>
-  EmbedEvents t tag (RemoteHost :> api) where
+instance (ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (RemoteHost :> api) where
 
   type PairIn' t tag h (RemoteHost :> api) =
     PairIn' t tag (SockAddr, h) api
@@ -613,8 +615,8 @@ instance (EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (Embed tag api) =>
-  Embed tag (Vault :> api) where
+instance (ServantReflexServer tag api) =>
+  ServantReflexServer tag (Vault :> api) where
 
   type FireIn' tag h (Vault :> api) =
     FireIn' tag (Vault, h) api
@@ -631,8 +633,8 @@ instance (Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (EmbedEvents t tag api) =>
-  EmbedEvents t tag (Vault :> api) where
+instance (ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (Vault :> api) where
 
   type PairIn' t tag h (Vault :> api) =
     PairIn' t tag (Vault, h) api
@@ -652,8 +654,8 @@ instance (EmbedEvents t tag api) =>
   addToQueue pt _ =
     addToQueue pt (Proxy :: Proxy api)
 
-instance (KnownSymbol realm, Embed tag api) =>
-  Embed tag (BasicAuth realm usr :> api) where
+instance (KnownSymbol realm, ServantReflexServer tag api) =>
+  ServantReflexServer tag (BasicAuth realm usr :> api) where
 
   type FireIn' tag h (BasicAuth realm usr :> api) =
     FireIn' tag (usr, h) api
@@ -670,8 +672,8 @@ instance (KnownSymbol realm, Embed tag api) =>
   serve' _ t h f q a =
     serve' (Proxy :: Proxy api) t (a, h) f q
 
-instance (KnownSymbol realm, EmbedEvents t tag api) =>
-  EmbedEvents t tag (BasicAuth realm usr :> api) where
+instance (KnownSymbol realm, ServantReflexServerEvents t tag api) =>
+  ServantReflexServerEvents t tag (BasicAuth realm usr :> api) where
 
   type PairIn' t tag h (BasicAuth realm usr :> api) =
     PairIn' t tag (usr, h) api
@@ -692,7 +694,7 @@ instance (KnownSymbol realm, EmbedEvents t tag api) =>
     addToQueue pt (Proxy :: Proxy api)
 
 instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
-  Embed tag (Verb (method :: k1) status ctypes a) where
+  ServantReflexServer tag (Verb (method :: k1) status ctypes a) where
 
   type FireIn' tag h (Verb method status ctypes a) =
     (tag, RevTupleListFlatten h) -> IO ()
@@ -723,7 +725,7 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
       Right x -> pure x
 
 instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
-  EmbedEvents t tag (Verb (method :: k1) status ctypes a) where
+  ServantReflexServerEvents t tag (Verb (method :: k1) status ctypes a) where
 
   type PairIn' t tag h (Verb method status ctypes a) =
     (Event t (tag, RevTupleListFlatten h), (tag, RevTupleListFlatten h) -> IO ())
@@ -746,167 +748,3 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
     in
       performEvent_ $ (void . Map.traverseWithKey f) <$> eo
 
-class TupleList xs where
-  type RevTupleListFlatten xs
-
-  revTupleListFlatten :: xs -> RevTupleListFlatten xs
-
-instance TupleList () where
-  type RevTupleListFlatten () =
-    ()
-
-  revTupleListFlatten _ =
-    ()
-
-instance TupleList (a, ()) where
-  type RevTupleListFlatten (a, ()) =
-    a
-
-  revTupleListFlatten (a, ()) =
-    a
-
-instance TupleList (a, (b, ())) where
-  type RevTupleListFlatten (a, (b, ())) =
-    (b, a)
-
-  revTupleListFlatten (a, (b, ())) =
-    (b, a)
-
-instance TupleList (a, (b, (c, ()))) where
-  type RevTupleListFlatten (a, (b, (c, ()))) =
-    (c, b, a)
-
-  revTupleListFlatten (a, (b, (c, ()))) =
-    (c, b, a)
-
-newtype Payload = Payload { payloadValue :: String }
-  deriving (Eq, Ord, Show, Generic)
-
-instance FromJSON Payload
-instance ToJSON Payload
-
-type MyAPI =
-       "payloads" :> Get '[JSON] [Payload]
-  :<|> "payloads" :> ReqBody '[JSON] Payload :> PostNoContent '[JSON] NoContent
-  :<|> "payloads" :> Capture "index" Int :> DeleteNoContent '[JSON] NoContent
-
-type TestAPI = "one" :> Capture "i1" Int :> TestAPI2
-          :<|> "two" :> Capture "b1" Bool :> TestAPI2
-
-type TestAPI2 = "three" :> Capture "i2" Int :> Get '[JSON] Int
-           :<|> "four" :> Capture "b2" Bool :> Get '[JSON] Bool
-
-newtype Ticket = Ticket Int
-  deriving (Eq, Ord, Show, Hashable)
-
-newTicketDispenser :: IO (TVar Ticket)
-newTicketDispenser =
-  atomically . newTVar . Ticket $ 0
-
-getNextTicket :: TVar Ticket -> STM Ticket
-getNextTicket tv = do
-  Ticket t <- readTVar tv
-  writeTVar tv $ Ticket (succ t)
-  return $ Ticket t
-
-asdf :: IO ()
-asdf = do
-  td <- newTicketDispenser
-  let mkT = atomically $ getNextTicket td
-  s <- basicHost $ serveHost (Proxy :: Proxy MyAPI) mkT myAPINetwork
-  s
-
-myAPINetwork ::
-  EventsIn' t Ticket () MyAPI ->
-  BasicGuest t m (EventsOut t Ticket MyAPI)
-myAPINetwork (eGet :<|> ePost :<|> eDelete) = do
-  let
-    remove i xs
-      | i < 0 = xs
-      | i >= length xs = xs
-      | otherwise = let (ys, _ : zs) = splitAt i xs in ys ++ zs
-
-  dList <- foldDyn ($) [] . leftmost $ [
-      ((:) . payloadValue . snd) <$> ePost
-    , (remove . snd) <$> eDelete
-    ]
-
-  performEvent_ $ (liftIO . putStrLn $ "FRP: get") <$ eGet
-  performEvent_ $ (liftIO . putStrLn $ "FRP: post") <$ ePost
-  performEvent_ $ (liftIO . putStrLn $ "FRP: delete") <$ eDelete
-
-  let
-    fnGet = Right . fmap Payload . reverse
-    eGetOut = (\l (t, _) -> (t =: fnGet l)) <$> current dList <@> eGet
-    ePostOut = (\(t, _) -> (t =: Right NoContent)) <$> ePost
-    eDeleteOut = (\(t, _) -> (t =: Right NoContent)) <$> eDelete
-
-  pure $ eGetOut :<|> ePostOut :<|> eDeleteOut
-
-type MyAPI2 =
-  "add" :> Capture "addend" Int :> Get '[JSON] NoContent :<|>
-  "total" :> Get '[JSON] Int :<|>
-  "total" :> "after" :> Capture "count" Int :> Get '[JSON] Int :<|>
-  "total" :> "delay" :> Capture "seconds" Int :> Get '[JSON] Int
-
-asdf2 :: IO ()
-asdf2 = do
-  td <- newTicketDispenser
-  let mkT = atomically $ getNextTicket td
-  s <- basicHost $ serveHost (Proxy :: Proxy MyAPI2) mkT myAPI2Network
-  s
-
-myAPI2Network ::
-  EventsIn' t Ticket () MyAPI2 ->
-  BasicGuest t m (EventsOut t Ticket MyAPI2)
-myAPI2Network (eAddIn :<|> eTotalIn :<|> eTotalAfterIn :<|> eTotalDelayIn) = do
-  dTotal <- foldDyn ($) 0 $
-    ((+) . snd) <$> eAddIn
-
-  dCountdown <- foldDyn ($) Map.empty . mergeWith (.) $ [
-      uncurry Map.insert <$> eTotalAfterIn
-    , Map.filter (> 0) . fmap pred <$ eAddIn
-    ]
-
-  {- this needs to go into a map based on tickets in order to work
-     which probably also requires listWithKey
-     otherwise it is working fine
-  let
-    eDebounceAdd = (\(t, d) -> debounce (fromIntegral d) (t <$ eAddIn)) <$> eTotalDelayIn
-  eDebounced <- fmap snd $ runWithReplace (pure ()) eDebounceAdd
-  eTicketDebounced <- switchPromptly never eDebounced
-  -}
-  let
-    eTicketDebounced = never
-
-  let
-    mkAddOut (t, _) =
-      t =: Right NoContent
-    eAddOut =
-      mkAddOut <$> eAddIn
-
-    mkTotalOut r (t, _) =
-      t =: Right r
-    eTotalOut =
-      mkTotalOut <$> current dTotal <@> eTotalIn
-
-    mkTotalAfterOut total =
-      fmap (const $ Right total) . Map.filter (== 0) . fmap pred
-    eTotalAfterOut =
-      ffilter (not . Map.null) $ mkTotalAfterOut <$> current dTotal <*> current dCountdown <@ eAddIn
-
-    mkTotalDelayOut r t =
-      t =: Right r
-    eTotalDelayOut =
-      mkTotalDelayOut <$> current dTotal <@> eTicketDebounced
-
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add in " ++ show x) <$> eAddIn
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: add out " ++ show x) <$> eAddOut
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total in " ++ show x) <$> eTotalIn
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total out " ++ show x) <$> eTotalOut
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total after in " ++ show x) <$> eTotalAfterIn
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total after out " ++ show x) <$> eTotalAfterOut
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total delay in " ++ show x) <$> eTotalDelayIn
-  performEvent_ $ (\x -> liftIO . putStrLn $ "FRP: total delay out " ++ show x) <$> eTotalDelayOut
-
-  pure $ eAddOut :<|> eTotalOut :<|> eTotalAfterOut :<|> eTotalDelayOut
