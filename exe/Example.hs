@@ -6,13 +6,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Example (
-    runMyAPI
+module Main (
+    main
   ) where
 
 import Data.Proxy (Proxy(..))
-
-import Control.Monad.Trans (liftIO)
 
 import Data.Hashable (Hashable(..))
 
@@ -31,7 +29,7 @@ import Reflex.Basic.Host
 
 import Util.List
 
-import ServantReflexServer
+import Reflex.Server.Servant
 
 (=:) :: Ord k => k -> v -> Map k v
 (=:) = Map.singleton
@@ -55,15 +53,15 @@ type MyAPI =
   "total" :> "after" :> Capture "count" Int :> Get '[JSON] Int :<|>
   "total" :> "delay" :> Capture "seconds" Int :> Get '[JSON] Int
 
-runMyAPI :: IO ()
-runMyAPI = do
+main :: IO ()
+main = do
   td <- newTicketDispenser
   let mkT = atomically $ getNextTicket td
   app <- basicHost $ serverGuest (Proxy :: Proxy MyAPI) mkT myAPINetwork
   run 8080 app
 
 myAPINetwork ::
-  (Ord tag, Show tag, Reflex t) =>
+  (Ord tag, Reflex t) =>
   EventsIn' t tag () MyAPI ->
   BasicGuest t m (EventsOut t tag MyAPI)
 myAPINetwork (eAddIn :<|> eTotalIn :<|> eTotalAfterIn :<|> eTotalDelayIn) = mdo

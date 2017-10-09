@@ -18,7 +18,7 @@ Portability : non-portable
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module ServantReflexServer (
+module Reflex.Server.Servant (
     ServantReflexServer(..)
   , ServantReflexServerEvents(..)
   , serverGuest

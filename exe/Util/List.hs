@@ -17,9 +17,6 @@ module Util.List (
 import Control.Monad (void)
 import Control.Monad.Fix (MonadFix)
 import Data.Either
-import Data.Maybe
-import Data.Dependent.Map (DMap, GCompare (..))
-import Data.Functor.Constant
 import Data.Functor.Misc
 
 import Data.Align
@@ -27,24 +24,8 @@ import Data.These
 
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
 
 import Reflex
-
-diffMapNoEq :: (Ord k) => Map k v -> Map k v -> Map k (Maybe v)
-diffMapNoEq olds news = flip Map.mapMaybe (align olds news) $ \case
-  This _ -> Just Nothing
-  These _ new -> Just $ Just new
-  That new -> Just $ Just new
-
-diffMap :: (Ord k, Eq v) => Map k v -> Map k v -> Map k (Maybe v)
-diffMap olds news = flip Map.mapMaybe (align olds news) $ \case
-  This _ -> Just Nothing
-  These old new
-    | old == new -> Nothing
-    | otherwise -> Just $ Just new
-  That new -> Just $ Just new
 
 applyMap :: Ord k => Map k (Maybe v) -> Map k v -> Map k v
 applyMap patch old = insertions `Map.union` (old `Map.difference` deletions)
@@ -61,11 +42,6 @@ mapPartitionEithers m = (fromLeft <$> ls, fromRight <$> rs)
         fromRight (Right r) = r
         fromRight _ = error "mapPartitionEithers: fromRight received a Left value; this should be impossible"
 
--- | Apply a map patch to a set
--- > applyMapKeysSet patch (Map.keysSet m) == Map.keysSet (applyMap patch m)
-applyMapKeysSet :: Ord k => Map k (Maybe v) -> Set k -> Set k
-applyMapKeysSet patch old = Map.keysSet insertions `Set.union` (old `Set.difference` Map.keysSet deletions)
-  where (insertions, deletions) = Map.partition isJust patch
 listHoldWithKey :: forall t m k v a. (Ord k, MonadAdjust t m, MonadHold t m) => Map k v -> Event t (Map k (Maybe v)) -> (k -> v -> m a) -> m (Dynamic t (Map k a))
 listHoldWithKey m0 m' f = do
   let dm0 = mapWithFunctorToDMap $ Map.mapWithKey f m0

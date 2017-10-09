@@ -11,10 +11,8 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     ServantReflexServer
+  exposed-modules:     Reflex.Server.Servant
                      , Util.Tuples
-                     , Util.List
-                     , Example
   build-depends:       base >=4.9 && <4.10
                      , mtl >=2.2 && <2.3
                      , primitive >=0.6 && <0.7
@@ -28,6 +26,26 @@ library
                      , dependent-sum
                      , ref-tf
                      , reflex
+                     , servant 
+                     , servant-server
+                     , http-api-data
+                     , wai
+                     , reflex-basic-host
+  hs-source-dirs:      src
+  ghc-options:         -Wall
+  default-language:    Haskell2010
+
+executable example
+  main-is:             Example.hs
+  other-modules:       Util.List
+  build-depends:       base >=4.9 && <4.10
+                     , mtl >=2.2 && <2.3
+                     , hashable >=1.2 && <1.3
+                     , stm >=2.4 && <2.5
+                     , containers
+                     , dependent-sum
+                     , ref-tf
+                     , reflex
                      , reflex-dom-core
                      , servant 
                      , servant-server
@@ -36,8 +54,8 @@ library
                      , warp
                      , reflex-basic-host
                      , transformers
-                     , dependent-map
                      , these
-  hs-source-dirs:      src
+                     , servant-reflex-server
+  hs-source-dirs:      exe
   ghc-options:         -Wall
   default-language:    Haskell2010
