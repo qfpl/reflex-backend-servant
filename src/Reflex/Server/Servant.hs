@@ -45,9 +45,9 @@ import Network.Socket (SockAddr)
 import Servant.API
 import Servant.API.ContentTypes (AllCTRender(..), AllCTUnrender(..))
 import Servant.Server (ServantErr, Server, HasServer, serve)
-import Network.Wai (Application)
+import Network.Wai (Application, Request, Response)
 
-import Reflex
+import Reflex hiding (Request, Response)
 import Reflex.Basic.Host
 
 import Util.Tuples
@@ -736,7 +736,7 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
   type EventsOut t tag (Verb method status ctypes a) =
     Event t (Map tag (Either ServantErr a))
 
-  mkPair _ (_ :: Proxy h) _ = do
+  mkPair _ _ _ = do
     newTriggerEvent
 
   splitPair _ _ _ _ =
@@ -748,3 +748,52 @@ instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status) =>
     in
       performEvent_ $ (void . Map.traverseWithKey f) <$> eo
 
+instance ServantReflexServer tag Raw where
+  type FireIn' tag h Raw =
+    (tag, RevTupleListFlatten h, Request) -> IO ()
+
+  type Queues tag Raw =
+    SM.Map tag Response
+
+  type TupleListConstraints h Raw =
+    TupleList h
+
+  mkQueue _ _ =
+    liftIO . atomically $ SM.empty
+
+  serve' _ mkT h f q req respond = do
+    res <- liftIO $ do
+      t <- mkT
+      f (t, revTupleListFlatten h, req)
+      atomically $ do
+        v <- SM.lookup t q
+        case v of
+          Just x -> do
+            SM.delete t q
+            return x
+          Nothing ->
+            retry
+    respond res
+
+instance ServantReflexServerEvents t tag Raw where
+
+  type PairIn' t tag h Raw =
+    (Event t (tag, RevTupleListFlatten h, Request), (tag, RevTupleListFlatten h, Request) -> IO ())
+
+  type EventsIn' t tag h Raw =
+    Event t (tag, RevTupleListFlatten h, Request)
+
+  type EventsOut t tag Raw =
+    Event t (Map tag Response)
+
+  mkPair _ _ _ = do
+    newTriggerEvent
+
+  splitPair _ _ _ _ =
+    id
+
+  addToQueue _ _ eo q =
+    let
+      f k v = liftIO . atomically $ SM.insert k v q
+    in
+      performEvent_ $ (void . Map.traverseWithKey f) <$> eo
