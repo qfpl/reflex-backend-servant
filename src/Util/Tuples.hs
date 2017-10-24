@@ -43,3 +43,52 @@ instance TupleList (a, (b, (c, ()))) where
 
   revTupleListFlatten (a, (b, (c, ()))) =
     (c, b, a)
+
+instance TupleList (a, (b, (c, (d, ())))) where
+  type RevTupleListFlatten (a, (b, (c, (d, ())))) =
+    (d, c, b, a)
+
+  revTupleListFlatten (a, (b, (c, (d, ())))) =
+    (d, c, b, a)
+
+instance TupleList (a, (b, (c, (d, (e, ()))))) where
+  type RevTupleListFlatten (a, (b, (c, (d, (e, ()))))) =
+    (e, d, c, b, a)
+
+  revTupleListFlatten (a, (b, (c, (d, (e, ()))))) =
+    (e, d, c, b, a)
+
+instance TupleList (a, (b, (c, (d, (e, (f, ())))))) where
+  type RevTupleListFlatten (a, (b, (c, (d, (e, (f, ())))))) =
+    (f, e, d, c, b, a)
+
+  revTupleListFlatten (a, (b, (c, (d, (e, (f, ())))))) =
+    (f, e, d, c, b, a)
+
+instance TupleList (a, (b, (c, (d, (e, (f, (g, ()))))))) where
+  type RevTupleListFlatten (a, (b, (c, (d, (e, (f, (g, ()))))))) =
+    (g, f, e, d, c, b, a)
+
+  revTupleListFlatten (a, (b, (c, (d, (e, (f, (g, ()))))))) =
+    (g, f, e, d, c, b, a)
+
+instance TupleList (a, (b, (c, (d, (e, (f, (g, (h, ())))))))) where
+  type RevTupleListFlatten (a, (b, (c, (d, (e, (f, (g, (h, ())))))))) =
+    (h, g, f, e, d, c, b, a)
+
+  revTupleListFlatten (a, (b, (c, (d, (e, (f, (g, (h, ())))))))) =
+    (h, g, f, e, d, c, b, a)
+
+instance TupleList (a, (b, (c, (d, (e, (f, (g, (h, (i, ()))))))))) where
+  type RevTupleListFlatten (a, (b, (c, (d, (e, (f, (g, (h, (i, ()))))))))) =
+    (i, h, g, f, e, d, c, b, a)
+
+  revTupleListFlatten (a, (b, (c, (d, (e, (f, (g, (h, (i, ()))))))))) =
+    (i, h, g, f, e, d, c, b, a)
+
+instance TupleList (a, (b, (c, (d, (e, (f, (g, (h, (i, (j, ())))))))))) where
+  type RevTupleListFlatten (a, (b, (c, (d, (e, (f, (g, (h, (i, (j, ())))))))))) =
+    (j, i, h, g, f, e, d, c, b, a)
+
+  revTupleListFlatten (a, (b, (c, (d, (e, (f, (g, (h, (i, (j, ())))))))))) =
+    (j, i, h, g, f, e, d, c, b, a)
