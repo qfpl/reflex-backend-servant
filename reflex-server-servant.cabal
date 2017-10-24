@@ -12,6 +12,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Reflex.Server.Servant
+                     , Util.Ticket
                      , Util.Tuples
   build-depends:       base >=4.9 && <4.10
                      , mtl >=2.2 && <2.3

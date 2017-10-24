@@ -5,14 +5,11 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Main (
     main
   ) where
 
 import Data.Proxy (Proxy(..))
-
-import Data.Hashable (Hashable(..))
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -30,22 +27,10 @@ import Reflex.Basic.Host
 import Util.List
 
 import Reflex.Server.Servant
+import Util.Ticket
 
 (=:) :: Ord k => k -> v -> Map k v
 (=:) = Map.singleton
-
-newtype Ticket = Ticket Int
-  deriving (Eq, Ord, Show, Hashable)
-
-newTicketDispenser :: IO (TVar Ticket)
-newTicketDispenser =
-  atomically . newTVar . Ticket $ 0
-
-getNextTicket :: TVar Ticket -> STM Ticket
-getNextTicket tv = do
-  Ticket t <- readTVar tv
-  writeTVar tv $ Ticket (succ t)
-  return $ Ticket t
 
 type MyAPI =
   "add" :> Capture "addend" Int :> Get '[JSON] NoContent :<|>
