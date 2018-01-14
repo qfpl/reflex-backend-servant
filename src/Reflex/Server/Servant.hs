@@ -36,6 +36,7 @@ import Control.Concurrent.STM
 import qualified Control.Concurrent.STM.Map as SM
 
 import Data.Hashable (Hashable(..))
+import Data.Tagged (Tagged(..))
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -761,7 +762,7 @@ instance ServantReflexServer tag Raw where
   mkQueue _ _ =
     liftIO . atomically $ SM.empty
 
-  serve' _ mkT h f q req respond = do
+  serve' _ mkT h f q = Tagged $ \req respond -> do
     res <- liftIO $ do
       t <- mkT
       f (t, revTupleListFlatten h, req)

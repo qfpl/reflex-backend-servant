@@ -24,8 +24,6 @@ import Reflex
 import Reflex.Dom.Core (debounce)
 import Reflex.Basic.Host
 
-import Util.List
-
 import Reflex.Server.Servant
 import Util.Ticket
 

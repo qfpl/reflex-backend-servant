@@ -5,8 +5,8 @@ let
     reflex-basic-host = initialNixpkgs.pkgs.fetchFromGitHub {
       owner = "dalaing";
       repo = "reflex-basic-host";
-      rev = "5960a216d28c382ce40ff303a51e2823ddd63d5e";
-      sha256 = "1j5ibs17740rxmvmqk0ycfhy2dii07w09l79n1qviw8bc2inkllr";
+      rev = "a06461166895c680153c44de757330c3102ab6d5";
+      sha256 = "05a5fc96r1gc8l2q0mnw4xz0lvg7hzdw7i5ssrfxrcgikngmajyn";
     };
   };
 in
