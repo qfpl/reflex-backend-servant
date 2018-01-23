@@ -22,7 +22,7 @@ import Network.Wai.Handler.Warp (run)
 
 import Reflex
 import Reflex.Dom.Core (debounce)
-import Reflex.Basic.Host
+import Reflex.Host.Basic
 
 import Reflex.Server.Servant
 import Util.Ticket
@@ -40,7 +40,7 @@ main :: IO ()
 main = do
   td <- newTicketDispenser
   let mkT = atomically $ getNextTicket td
-  app <- basicHost $ serverGuest (Proxy :: Proxy MyAPI) mkT myAPINetwork
+  app <- basicHostForever $ serverGuest (Proxy :: Proxy MyAPI) mkT myAPINetwork
   run 8080 app
 
 myAPINetwork ::

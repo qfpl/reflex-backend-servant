@@ -49,7 +49,7 @@ import Servant.Server (ServantErr, Server, HasServer, serve)
 import Network.Wai (Application, Request, Response)
 
 import Reflex hiding (Request, Response)
-import Reflex.Basic.Host
+import Reflex.Host.Basic
 
 import Util.Tuples
 
