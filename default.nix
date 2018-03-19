@@ -1,4 +1,4 @@
-{ reflex-platform ? import ./reflex-platform.nix
+{ reflex-platform ? import ./nix/reflex-platform.nix
 , compiler   ? "ghc"
 } :
 let
@@ -7,7 +7,7 @@ let
   ghc = reflex-platform.${compiler};
 
   sources = {
-    reflex-basic-host = import ./reflex-basic-host.nix;
+    reflex-basic-host = import ./nix/reflex-basic-host.nix;
   };
 
   modifiedHaskellPackages = ghc.override {
