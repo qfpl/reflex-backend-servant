@@ -62,6 +62,7 @@ serverGuest ::
   , Hashable tag
   , TupleListConstraints () api
   , HasServer api '[]
+  , BasicGuestConstraints t m
   ) =>
   Proxy api ->
   IO tag ->
