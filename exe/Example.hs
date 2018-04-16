@@ -44,7 +44,7 @@ main = do
   run 8080 app
 
 myAPINetwork ::
-  (Ord tag, Reflex t) =>
+  (Ord tag, Reflex t, BasicGuestConstraints t m) =>
   EventsIn' t tag () MyAPI ->
   BasicGuest t m (EventsOut t tag MyAPI)
 myAPINetwork (eAddIn :<|> eTotalIn :<|> eTotalAfterIn :<|> eTotalDelayIn) = mdo
