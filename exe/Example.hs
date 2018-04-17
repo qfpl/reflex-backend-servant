@@ -9,7 +9,11 @@ module Main (
     main
   ) where
 
+import Control.Monad (void)
+import Control.Concurrent (forkIO)
 import Data.Proxy (Proxy(..))
+
+import Control.Monad.Trans (liftIO)
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -40,8 +44,9 @@ main :: IO ()
 main = do
   td <- newTicketDispenser
   let mkT = atomically $ getNextTicket td
-  app <- basicHostForever $ serverGuest (Proxy :: Proxy MyAPI) mkT myAPINetwork
-  run 8080 app
+  basicHostForever $ do
+    app <- serverGuest (Proxy :: Proxy MyAPI) mkT myAPINetwork
+    void . liftIO . forkIO $ run 8080 app
 
 myAPINetwork ::
   (Ord tag, Reflex t, BasicGuestConstraints t m) =>
