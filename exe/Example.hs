@@ -25,10 +25,9 @@ import Servant.API
 import Network.Wai.Handler.Warp (run)
 
 import Reflex
-import Reflex.Dom.Core (debounce)
 import Reflex.Host.Basic
 
-import Reflex.Server.Servant
+import Reflex.Backend.Servant
 import Util.Ticket
 
 (=:) :: Ord k => k -> v -> Map k v

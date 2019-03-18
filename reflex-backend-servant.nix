@@ -1,6 +1,6 @@
 { mkDerivation, aeson, base, bytestring, containers, dependent-sum
 , hashable, http-api-data, mtl, network, primitive, ref-tf, reflex
-, reflex-basic-host, reflex-dom-core, servant, servant-server
+, reflex-basic-host, servant, servant-server
 , stdenv, stm, tagged, transformers, ttrie, wai, warp
 }:
 mkDerivation {
@@ -16,7 +16,7 @@ mkDerivation {
   ];
   executableHaskellDepends = [
     base containers dependent-sum hashable http-api-data mtl ref-tf
-    reflex reflex-basic-host reflex-dom-core servant servant-server stm
+    reflex reflex-basic-host servant servant-server stm
     transformers wai warp
   ];
   license = stdenv.lib.licenses.bsd3;

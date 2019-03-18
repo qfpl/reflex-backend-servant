@@ -16,6 +16,6 @@ let
     };
   };
 
-  drv = modifiedHaskellPackages.callPackage ./reflex-server-servant.nix {};
+  drv = modifiedHaskellPackages.callPackage ./reflex-backend-servant.nix {};
 in
   drv
