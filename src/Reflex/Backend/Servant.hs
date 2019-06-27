@@ -65,7 +65,7 @@ serverGuest ::
   , HasServer api '[]
   , BasicGuestConstraints t m
   ) =>
-  Proxy api ->
+  Proxy (api :: *) ->
   IO tag ->
   (EventsIn' t tag () api -> BasicGuest t m (EventsOut t tag api)) ->
   BasicGuest t m (Application)

@@ -1,7 +1,7 @@
 {
   "url": "https://github.com/qfpl/reflex-basic-host",
-  "rev": "22fa91611f1eb8ef2f1cc4aeb7c52484a4c75dc5",
-  "date": "2019-03-18T10:37:31+10:00",
-  "sha256": "03zgphm0dib5nizxbzakb02561r3wsdlj91zh2x6b853dpdgcc1y",
+  "rev": "d989d43fb920477f033dffe50f896eeacbccefac",
+  "date": "2019-06-27T22:07:39+10:00",
+  "sha256": "0dak3hbd3hhaa8lc0a43va41lkmjn3ffk98zp5blp3ajh3ijx2b6",
   "fetchSubmodules": false
 }
